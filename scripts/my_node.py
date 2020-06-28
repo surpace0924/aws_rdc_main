@@ -30,36 +30,14 @@ def main():
     pub_vel = rospy.Publisher('cmd_vel', gm.Twist, queue_size=1)
     pub_terget_pos = rospy.Publisher('/move_base_simple/goal', gm.PoseStamped, queue_size=100)
     pub_Time = rospy.Publisher('game_time', sm.Float32, queue_size=100)
-
-    pub_check_point = rospy.Publisher('check_point', gm.PoseArray, queue_size=100)
-    pub_pass_point = rospy.Publisher('pass_point', gm.PoseArray, queue_size=100)
-
     listener = tf.TransformListener()
-
-    check_point = [Pose2D(0.00, 0.00, 0),
-                   Pose2D(2.35, 0.23, 0),
-                   Pose2D(5.10, 1.35, 0),
-                   Pose2D(3.12, 1.88, 0),
-                   Pose2D(1.00, 2.37, 0)]
-
-    pass_point = [Pose2D(0.83, 0.05, 0),
-                  Pose2D(3.15, 0.30, 0),
-                  Pose2D(4.45, 0.42, 0),
-                  Pose2D(4.45, 1.30, 0),
-                  Pose2D(3.15, 1.30, 0),
-                  Pose2D(1.90, 2.10, 0),
-                  Pose2D(1.00, 1.10, 0),
-                  Pose2D(0.18, 0.87, 0),
-                  Pose2D(-0.1, 1.45, 0)]
-
-    node_list = []
-    node_list.extend(check_point)
-    node_list.extend(pass_point)
-
+    gr = Graph()
+    gr.update(0, 2)
 
     initPose()
 
-    pub_terget_pos.publish(RosMsgConverter.toRosPoseStamped(check_point[0], "map"))
+
+    pub_terget_pos.publish(RosMsgConverter.toRosPoseStamped(gr.check_point[0], "map"))
     now_target_point = 0
 
     count = 0
@@ -70,9 +48,12 @@ def main():
         now_time.data = count / LOOP_HZ
         pub_Time.publish(now_time)
 
-        pub_check_point.publish(RosMsgConverter.toRosPoseArray(check_point, 'map'))
-        pub_pass_point.publish(RosMsgConverter.toRosPoseArray(pass_point, 'map'))
-        drawEdge(check_point)
+        pub_check_point = rospy.Publisher('check_point', gm.PoseArray, queue_size=100)
+        pub_check_point.publish(RosMsgConverter.toRosPoseArray(gr.check_point, 'map'))
+        pub_pass_point = rospy.Publisher('pass_point', gm.PoseArray, queue_size=100)
+        pub_pass_point.publish(RosMsgConverter.toRosPoseArray(gr.pass_point, 'map'))
+
+        drawEdge(gr.path)
 
         # 現在位置の取得
         try:
@@ -81,17 +62,134 @@ def main():
             continue
         now_pose = Pose2D(linear[0], linear[1], angular[2])
 
-        distance_error = Pose2D.getDistance(now_pose, check_point[now_target_point])
+        distance_error = Pose2D.getDistance(now_pose, gr.path[now_target_point])
         # print(distance_error)
 
         if distance_error < 0.08:
             now_target_point += 1
             pub_vel.publish(RosMsgConverter.toRosTwist(Pose2D(0, 0, 0)))
             # rospy.sleep(3.0)
-            pub_terget_pos.publish(RosMsgConverter.toRosPoseStamped(check_point[now_target_point], "map"))
+            pub_terget_pos.publish(RosMsgConverter.toRosPoseStamped(gr.path[now_target_point], "map"))
 
         count += 1
         rate.sleep()
+
+
+########## Class ##########
+class Graph():
+    def __init__(self):
+        self.path = []
+
+        # 原点と到達すべきゴール
+        self.check_point = [Pose2D(0.00, 0.00, 0),
+                            Pose2D(2.35, 0.23, 0),
+                            Pose2D(5.10, 1.35, 0),
+                            Pose2D(3.12, 1.88, 0),
+                            Pose2D(1.00, 2.37, 0)]
+
+        # 途中通過点
+        self.pass_point = [Pose2D(0.83, 0.05, 0),
+                           Pose2D(3.15, 0.30, 0),
+                           Pose2D(4.45, 0.42, 0),
+                           Pose2D(4.45, 1.30, 0),
+                           Pose2D(3.15, 1.30, 0),
+                           Pose2D(1.90, 2.10, 0),
+                           Pose2D(1.00, 1.10, 0),
+                           Pose2D(0.18, 0.87, 0),
+                           Pose2D(-0.1, 1.45, 0)]
+
+        # ふたつの点をまとめたもの
+        self.node_list = []
+        self.node_list.extend(self.check_point)
+        self.node_list.extend(self.pass_point)
+
+        self.edge_list = [[ 0,  5, 0],
+                          [ 5, 12, 0],
+                          [ 5,  1, 0],
+                          [ 1,  6, 0],
+                          [12, 11, 0],
+                          [12, 13, 0],
+                          [ 6,  7, 0],
+                          [ 6,  9, 0],
+                          [ 7,  8, 0],
+                          [ 8,  2, 0],
+                          [ 8,  9, 0],
+                          [ 9, 11, 0],
+                          [ 4, 11, 0],
+                          [ 4, 13, 0],
+                          [ 4, 10, 0],
+                          [ 3, 10, 0],
+                          [ 3,  9, 0]]
+        for e in self.edge_list:
+            e[2] = Pose2D.getDistance(self.node_list[e[0]], self.node_list[e[1]])
+
+        n = len(self.node_list) # 頂点数
+        w = len(self.edge_list) # 辺の数
+        self.cost = [[float("inf") for i in range(n)] for i in range(n)]
+        # cost[u][v]:辺uvのコスト(存在しないときはinf この場合は10**10)
+        for i in range(len(self.edge_list)):
+            self.cost[self.edge_list[i][0]][self.edge_list[i][1]] = self.edge_list[i][2]
+            self.cost[self.edge_list[i][1]][self.edge_list[i][0]] = self.edge_list[i][2]
+
+    # 始点sから各頂点への最短距離
+    # n:頂点数, w:辺の数, cost[u][v]:辺uvのコスト(存在しないときはinf)
+    def dijkstra(self, s, n, w):
+        d = [float("inf")] * n  # 始点から各頂点への最短距離
+        used = [False] * n
+        d[s] = 0
+
+        while True:
+            v = -1
+            # まだ使われてない頂点の中から最小の距離のものを探す
+            for i in range(n):
+                if (not used[i]) and (v == -1):
+                    v = i
+                elif (not used[i]) and d[i] < d[v]:
+                    v = i
+            if v == -1:
+                break
+            used[v] = True
+
+            for j in range(n):
+                d[j] = min(d[j], d[v] + self.cost[v][j])
+        return d
+
+    # 経路の生成
+    def calPath(self, s, g):
+        d = self.dijkstra(s, len(self.node_list), len(self.edge_list))
+        path = [g]
+        now = g
+        for j in range(len(self.edge_list)):
+            tmp_min = float("inf")
+            tmp_min_index = -1
+            for i in range(len(self.edge_list)):
+                if self.edge_list[i][0] == now:
+                    if d[self.edge_list[i][1]] < tmp_min:
+                        tmp_min = d[self.edge_list[i][1]]
+                        tmp_min_index = self.edge_list[i][1]
+                if self.edge_list[i][1] == now:
+                    if d[self.edge_list[i][0]] < tmp_min:
+                        tmp_min = d[self.edge_list[i][0]]
+                        tmp_min_index = self.edge_list[i][0]
+
+            now = tmp_min_index
+            path.append(tmp_min_index)
+            if tmp_min_index == s:
+                break
+
+        return list(reversed(path))
+
+
+    # コストの更新
+    def set_cost(self, u, v, cost):
+        self.cost[u][v] = cost
+        self.cost[v][u] = cost
+
+    def update(self, s, g):
+        self.path = []
+        for p in self.calPath(s, g):
+            self.path.append(self.node_list[p])
+
 
 
 ########## Function ##########
