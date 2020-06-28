@@ -20,7 +20,7 @@ from gazebo_msgs.srv import SetModelState, GetModelState
 
 # 機体性能最高速度
 MAX_SPD_LINEAR = 0.22  # [m/s]
-MAX_SPD_ANGULAR = 2.84  # [rad/s]
+MAX_SPD_ANGULAR = 2.84 # [rad/s]
 
 # 制御周期
 LOOP_HZ = 15.0
@@ -28,22 +28,32 @@ LOOP_HZ = 15.0
 def main():
     rospy.init_node('my_node')
     pub_vel = rospy.Publisher('cmd_vel', gm.Twist, queue_size=1)
-    pub_terget_pos = rospy.Publisher('terget_pos', gm.PoseStamped, queue_size=100)
+    pub_terget_pos = rospy.Publisher('/move_base_simple/goal', gm.PoseStamped, queue_size=100)
     pub_trajectory = rospy.Publisher('my_path', nm.Path, queue_size=100)
     pub_Time = rospy.Publisher('game_time', sm.Float32, queue_size=100)
+
+    pub_check_point = rospy.Publisher('check_point', gm.PoseArray, queue_size=100)
+    pub_node_point = rospy.Publisher('node_point', gm.PoseArray, queue_size=100)
+
     listener = tf.TransformListener()
 
-    path = getPath()
-    ppc = createPPC(path)
-
+    check_point = [Pose2D(2.35, 0.23, 0),
+                   Pose2D(5.10, 1.35, 0),
+                   Pose2D(3.12, 1.88, 0),
+                   Pose2D(1.00, 2.37, 0)]
     initPose()
+
+    pub_terget_pos.publish(RosMsgConverter.toRosPoseStamped(check_point[0], "map"))
+    now_target_point = 0
 
     count = 0
     rate = rospy.Rate(LOOP_HZ)
     while not rospy.is_shutdown():
-        # 現在時間の取得
+        # 現在時間の描画
         now_time = sm.Float32()
-        now_time.data = count/LOOP_HZ
+        now_time.data = count / LOOP_HZ
+        pub_Time.publish(now_time)
+        pub_check_point.publish(RosMsgConverter.toRosPoseArray(check_point, 'map'))
 
         # 現在位置の取得
         try:
@@ -52,22 +62,27 @@ def main():
             continue
         now_pose = Pose2D(linear[0], linear[1], angular[2])
 
-        # 制御量の取得
-        ppc.update(count, now_pose, 1 / LOOP_HZ)
-        output = ppc.getControlVal()
+        distance_error = Pose2D.getDistance(now_pose, check_point[now_target_point])
+        # print(distance_error)
+
+        if distance_error < 0.08:
+            now_target_point += 1
+            pub_vel.publish(RosMsgConverter.toRosTwist(Pose2D(0, 0, 0)))
+            rospy.sleep(3.0)
+            pub_terget_pos.publish(RosMsgConverter.toRosPoseStamped(check_point[now_target_point], "map"))
+
 
         # 速度司令
-        pub_vel.publish(RosMsgConverter.toRosTwist(output))
-        pub_trajectory.publish(RosMsgConverter.toRosPath(path, "map"))
-        pub_terget_pos.publish(RosMsgConverter.toRosPoseStamped(path[count], "map"))
-        pub_Time.publish(now_time)
+        # pub_vel.publish(RosMsgConverter.toRosTwist(output))
+        # pub_trajectory.publish(RosMsgConverter.toRosPath(path, "map"))
+
 
         # 終了判定
-        count += 1
-        if count >= len(path) or isGoal():
-            print("Goal " + str(now_time.data) + "[s]")
-            pub_vel.publish(RosMsgConverter.toRosTwist(Pose2D(0, 0, 0)))
-            return
+        # count += 1
+        # if count >= len(path) or isGoal():
+        #     print("Goal " + str(now_time.data) + "[s]")
+        #     pub_vel.publish(RosMsgConverter.toRosTwist(Pose2D(0, 0, 0)))
+        #     return
 
         rate.sleep()
 
@@ -109,19 +124,6 @@ def createPPC(path):
     ppc_param.fbc_linear = pid_linear
     ppc_param.fbc_angular = pid_angular
     return PPC(ppc_param, path)
-
-
-def getPath():
-    # 現在の同じディレクトリ内の「route.csv」を読み込み
-    file_name = os.path.dirname(__file__) + "/route.csv"
-    p2 = np.genfromtxt(file_name, delimiter=',', filling_values=0)
-
-    path = []
-    for i in range(len(p2)):
-        path.append(Pose2D(p2[i][0], p2[i][1], 0))
-
-    return path
-
 
 def isGoal():
     gazebo_model_get_state = rospy.ServiceProxy('/gazebo/get_model_state', GetModelState)

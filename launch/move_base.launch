@@ -18,5 +18,8 @@
     <remap from="odom" to="$(arg odom_topic)"/>
     <param name="DWAPlannerROS/min_vel_x" value="0.0" if="$(arg move_forward_only)" />
     <param name="DWAPlannerROS/path_distance_bias" value="55.0"/>
+    <param name="DWAPlannerROS/xy_goal_tolerance" value="0.08"/>
+    <param name="DWAPlannerROS/yaw_goal_tolerance" value="3.14"/>
+    <param name="DWAPlannerROS/latch_xy_goal_tolerance" value="true"/>
   </node>
 </launch>
