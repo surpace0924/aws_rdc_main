@@ -29,18 +29,34 @@ def main():
     rospy.init_node('my_node')
     pub_vel = rospy.Publisher('cmd_vel', gm.Twist, queue_size=1)
     pub_terget_pos = rospy.Publisher('/move_base_simple/goal', gm.PoseStamped, queue_size=100)
-    pub_trajectory = rospy.Publisher('my_path', nm.Path, queue_size=100)
     pub_Time = rospy.Publisher('game_time', sm.Float32, queue_size=100)
 
     pub_check_point = rospy.Publisher('check_point', gm.PoseArray, queue_size=100)
-    pub_node_point = rospy.Publisher('node_point', gm.PoseArray, queue_size=100)
+    pub_pass_point = rospy.Publisher('pass_point', gm.PoseArray, queue_size=100)
 
     listener = tf.TransformListener()
 
-    check_point = [Pose2D(2.35, 0.23, 0),
+    check_point = [Pose2D(0.00, 0.00, 0),
+                   Pose2D(2.35, 0.23, 0),
                    Pose2D(5.10, 1.35, 0),
                    Pose2D(3.12, 1.88, 0),
                    Pose2D(1.00, 2.37, 0)]
+
+    pass_point = [Pose2D(0.83, 0.05, 0),
+                  Pose2D(3.15, 0.30, 0),
+                  Pose2D(4.45, 0.42, 0),
+                  Pose2D(4.45, 1.30, 0),
+                  Pose2D(3.15, 1.30, 0),
+                  Pose2D(1.90, 2.10, 0),
+                  Pose2D(1.00, 1.10, 0),
+                  Pose2D(0.18, 0.87, 0),
+                  Pose2D(-0.1, 1.45, 0)]
+
+    node_list = []
+    node_list.extend(check_point)
+    node_list.extend(pass_point)
+
+
     initPose()
 
     pub_terget_pos.publish(RosMsgConverter.toRosPoseStamped(check_point[0], "map"))
@@ -53,7 +69,10 @@ def main():
         now_time = sm.Float32()
         now_time.data = count / LOOP_HZ
         pub_Time.publish(now_time)
+
         pub_check_point.publish(RosMsgConverter.toRosPoseArray(check_point, 'map'))
+        pub_pass_point.publish(RosMsgConverter.toRosPoseArray(pass_point, 'map'))
+        drawEdge(check_point)
 
         # 現在位置の取得
         try:
@@ -68,26 +87,19 @@ def main():
         if distance_error < 0.08:
             now_target_point += 1
             pub_vel.publish(RosMsgConverter.toRosTwist(Pose2D(0, 0, 0)))
-            rospy.sleep(3.0)
+            # rospy.sleep(3.0)
             pub_terget_pos.publish(RosMsgConverter.toRosPoseStamped(check_point[now_target_point], "map"))
 
-
-        # 速度司令
-        # pub_vel.publish(RosMsgConverter.toRosTwist(output))
-        # pub_trajectory.publish(RosMsgConverter.toRosPath(path, "map"))
-
-
-        # 終了判定
-        # count += 1
-        # if count >= len(path) or isGoal():
-        #     print("Goal " + str(now_time.data) + "[s]")
-        #     pub_vel.publish(RosMsgConverter.toRosTwist(Pose2D(0, 0, 0)))
-        #     return
-
+        count += 1
         rate.sleep()
 
 
 ########## Function ##########
+# 経路グラフの辺を描画
+def drawEdge(edge):
+    pub = rospy.Publisher('my_path', nm.Path, queue_size=100)
+    pub.publish((RosMsgConverter.toRosPath(edge, 'map')))
+
 # 自己位置を初期化
 def initPose():
     pub_initialpose = rospy.Publisher('initialpose', gm.PoseWithCovarianceStamped, queue_size=100)
