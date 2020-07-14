@@ -32,13 +32,14 @@ def main():
     pub_Time = rospy.Publisher('game_time', sm.Float32, queue_size=100)
     listener = tf.TransformListener()
     gr = Graph()
-    gr.update(0, 2)
+    gr.update(0, 1)
 
     initPose()
 
-
     pub_terget_pos.publish(RosMsgConverter.toRosPoseStamped(gr.check_point[0], "map"))
     now_target_point = 0
+
+    arrival_point = [1, 0, -1, -1, -1] # -1:未訪問, 0:訪問中, 1:訪問済み
 
     count = 0
     rate = rospy.Rate(LOOP_HZ)
@@ -62,13 +63,49 @@ def main():
             continue
         now_pose = Pose2D(linear[0], linear[1], angular[2])
 
+        # ノードとの距離偏差
         distance_error = Pose2D.getDistance(now_pose, gr.path[now_target_point])
-        # print(distance_error)
+        now_target_node = gr.now_graph[now_target_point]
 
-        if distance_error < 0.08:
-            now_target_point += 1
-            pub_vel.publish(RosMsgConverter.toRosTwist(Pose2D(0, 0, 0)))
-            # rospy.sleep(3.0)
+        # ノード到達
+        if (now_target_node != gr.now_graph[-1] and distance_error < 0.5) or distance_error < 0.08:
+            node_num = len(gr.path) - 1
+            print("node" + str(now_target_node) + " reaching! " + str(now_target_point) + "/" + str(node_num))
+
+            if node_num != now_target_point:
+                # チェックポイント未到達
+                now_target_point += 1
+            else:
+                # チェックポイント到達
+
+                # ロボットを止める
+                pub_vel.publish(RosMsgConverter.toRosTwist(Pose2D(0, 0, 0)))
+                rospy.sleep(3.0)
+
+                # いろいろ更新
+                now_target_point = 0
+                arrival_point[now_target_node] = 1   # 訪問済みにする
+
+                # 未訪問チェックポイントから一番近い点を検索
+                near_point = [-1, 10]
+                for i in range(len(arrival_point)):
+                    if arrival_point[i] == -1:
+                        if Pose2D.getDistance(gr.check_point[i], now_pose) < near_point[1]:
+                            near_point[1] = Pose2D.getDistance(gr.check_point[i], now_pose)
+                            near_point[0] = i
+                arrival_point[near_point[0]] = 0
+
+                # すべて訪問済みの場合は終了
+                if near_point[0] == -1:
+                    print("Reach all checkpoints!")
+                    return
+
+                # グラフの更新
+                gr.update(now_target_node, near_point[0])
+                print("arrival_point: " + str(arrival_point))
+                print()
+
+            # 目標ノードの更新をパブリッシュ
             pub_terget_pos.publish(RosMsgConverter.toRosPoseStamped(gr.path[now_target_point], "map"))
 
         count += 1
@@ -123,6 +160,8 @@ class Graph():
         for e in self.edge_list:
             e[2] = Pose2D.getDistance(self.node_list[e[0]], self.node_list[e[1]])
 
+        self.now_graph = []
+
         n = len(self.node_list) # 頂点数
         w = len(self.edge_list) # 辺の数
         self.cost = [[float("inf") for i in range(n)] for i in range(n)]
@@ -176,14 +215,23 @@ class Graph():
             path.append(tmp_min_index)
             if tmp_min_index == s:
                 break
-
+        print("update graph! " + str(list(reversed(path))))
+        self.now_graph = list(reversed(path))
         return list(reversed(path))
 
 
-    # コストの更新
-    def set_cost(self, u, v, cost):
-        self.cost[u][v] = cost
-        self.cost[v][u] = cost
+    # 辺の削除
+    def remove_edge(self, u, v):
+        self.cost[u][v] = float("inf")
+        self.cost[v][u] = float("inf")
+        index = 0
+        for i in range(len(self.edge_list)):
+            if self.edge_list[i][0] == u and self.edge_list[i][1] == v:
+                index =i
+            if self.edge_list[i][0] == v and self.edge_list[i][1] == u:
+                index =i
+        self.edge_list.pop(index)
+
 
     def update(self, s, g):
         self.path = []
