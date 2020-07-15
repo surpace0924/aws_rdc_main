@@ -1,6 +1,14 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# for dp in `find ~/workspace/bundle-store -maxdepth 2 -name setup.sh`;
+# do
+#  BUNDLE_CURRENT_PREFIX=${dp:0:-9}
+#  source ${dp} --extend
+# done
+# export TURTLEBOT3_MODEL=burger
+# roslaunch delivery_robot_sample rviz_for_navigation.launch
+
 import os
 import sys
 import roslib
@@ -249,7 +257,7 @@ def drawEdge(edge):
 # 自己位置を初期化
 def initPose():
     pub_initialpose = rospy.Publisher('initialpose', gm.PoseWithCovarianceStamped, queue_size=100)
-    rospy.sleep(1.0)
+    rospy.sleep(3.0)
     init_pose = gm.PoseWithCovarianceStamped()
     init_pose.header.frame_id = 'map'
     init_pose.header.stamp = rospy.Time.now()
@@ -262,9 +270,7 @@ def initPose():
                                  0.0, 0.0, 0.0, 0.0, 0.0, np.deg2rad(1.0)]
 
     pub_initialpose.publish(init_pose)
-    rospy.sleep(3.0)
-    print("Start")
-    rospy.sleep(0.2)
+    rospy.sleep(1.0)
 
 
 def createPPC(path):
